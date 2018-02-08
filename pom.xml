@@ -84,7 +84,7 @@
         <module>orientdb-driver</module>
         <module>couchbase-driver</module>
         <module>elasticsearch-driver</module>
-    <module>dynamodb-driver</module>
+    	<module>dynamodb-driver</module>
   </modules>
 
     <dependencies>
