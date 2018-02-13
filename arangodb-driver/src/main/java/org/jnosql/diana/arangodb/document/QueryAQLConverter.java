@@ -27,9 +27,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-final class AQLUtils {
+final class QueryAQLConverter {
 
-    private AQLUtils() {
+    private static final String FILTER = " FILTER ";
+    private static final String LIMIT = " LIMIT ";
+    private static final String IN = " IN ";
+    private static final String SORT = " SORT ";
+    private static final String REMOVE = " REMOVE ";
+    private static final String RETURN = " RETURN ";
+    private static final String SEPARATOR = " ";
+    private static final String AND = " AND ";
+    private static final String OR = " OR ";
+    private static final String EQUALS = " == ";
+    private static final String GREATER_EQUALS_THAN = " >= ";
+    private static final String GREATER_THAN = " > ";
+    private static final String LESSER_THAN = " < ";
+    private static final String LESSER_EQUALS_THAN = " <= ";
+    private static final String LIKE = " LIKE ";
+    private static final String NOT = " NOT ";
+    private static final char PARAM_APPENDER = '@';
+
+    private QueryAQLConverter() {
     }
 
     public static AQLQueryResult delete(DocumentDeleteQuery query) throws NullPointerException {
@@ -39,7 +57,7 @@ final class AQLUtils {
                 Collections.emptyList(),
                 0L,
                 0L,
-                " REMOVE ", true);
+                REMOVE, true);
     }
 
     public static AQLQueryResult select(DocumentQuery query) throws NullPointerException {
@@ -49,7 +67,7 @@ final class AQLUtils {
                 query.getSorts(),
                 query.getFirstResult(),
                 query.getMaxResults(),
-                " RETURN ", false);
+                RETURN, false);
 
     }
 
@@ -63,39 +81,38 @@ final class AQLUtils {
         StringBuilder aql = new StringBuilder();
         Map<String, Object> params = new HashMap<>();
         char entity = Character.toLowerCase(documentCollection.charAt(0));
-        aql.append("FOR ").append(entity).append(" IN ").append(documentCollection);
+        aql.append("FOR ").append(entity).append(IN).append(documentCollection);
 
-        if (documentCondition.isPresent()) {
-            aql.append(" FILTER ");
-            DocumentCondition condition = documentCondition.get();
+        documentCondition.ifPresent(condition -> {
+            aql.append(FILTER);
             definesCondition(condition, aql, params, entity, 0);
-        }
+        });
         if (!sorts.isEmpty()) {
             sort(sorts, aql, entity);
         }
 
         if (firstResult > 0 && maxResult > 0) {
-            aql.append(" LIMIT ").append(firstResult)
+            aql.append(LIMIT).append(firstResult)
                     .append(", ").append(maxResult);
         } else if (maxResult > 0) {
-            aql.append(" LIMIT ").append(maxResult);
+            aql.append(LIMIT).append(maxResult);
         }
 
         aql.append(conclusion).append(entity);
         if (delete) {
-            aql.append(" IN ").append(documentCollection);
+            aql.append(IN).append(documentCollection);
         }
         return new AQLQueryResult(aql.toString(), params);
     }
 
     private static void sort(List<Sort> sorts, StringBuilder aql, char entity) {
-        aql.append(" SORT ");
-        String separator = " ";
+        aql.append(SORT);
+        String separator = SEPARATOR;
         for (Sort sort : sorts) {
             aql.append(separator)
                     .append(entity).append('.')
                     .append(sort.getName())
-                    .append(" ").append(sort.getType());
+                    .append(SEPARATOR).append(sort.getType());
             separator = " , ";
         }
     }
@@ -103,67 +120,84 @@ final class AQLUtils {
     private static void definesCondition(DocumentCondition condition,
                                          StringBuilder aql,
                                          Map<String, Object> params,
-                                         char entity, int count) {
+                                         char entity, int counter) {
 
         Document document = condition.getDocument();
         switch (condition.getCondition()) {
             case IN:
-                appendCondtion(aql, params, entity, document, " IN ");
+                appendCondition(aql, params, entity, document, IN);
                 return;
             case EQUALS:
-                appendCondtion(aql, params, entity, document, " == ");
+                appendCondition(aql, params, entity, document, EQUALS);
                 return;
             case GREATER_EQUALS_THAN:
-                appendCondtion(aql, params, entity, document, " >= ");
+                appendCondition(aql, params, entity, document, GREATER_EQUALS_THAN);
                 return;
             case GREATER_THAN:
-                appendCondtion(aql, params, entity, document, " > ");
+                appendCondition(aql, params, entity, document, GREATER_THAN);
                 return;
             case LESSER_THAN:
-                appendCondtion(aql, params, entity, document, " < ");
+                appendCondition(aql, params, entity, document, LESSER_THAN);
                 return;
             case LESSER_EQUALS_THAN:
-                appendCondtion(aql, params, entity, document, " <= ");
+                appendCondition(aql, params, entity, document, LESSER_EQUALS_THAN);
                 return;
             case LIKE:
-                appendCondtion(aql, params, entity, document, " LIKE ");
+                appendCondition(aql, params, entity, document, LIKE);
                 return;
             case AND:
 
                 for (DocumentCondition dc : document.get(new TypeReference<List<DocumentCondition>>() {
                 })) {
-                    if (count > 0) {
-                        aql.append(" AND ");
+
+                    if (isFirstCondition(aql, counter)) {
+                        aql.append(AND);
                     }
-                    definesCondition(dc, aql, params, entity, ++count);
+                    definesCondition(dc, aql, params, entity, ++counter);
                 }
                 return;
             case OR:
 
                 for (DocumentCondition dc : document.get(new TypeReference<List<DocumentCondition>>() {
                 })) {
-                    if (count > 0) {
-                        aql.append(" OR ");
+                    if (isFirstCondition(aql, counter)) {
+                        aql.append(OR);
                     }
-                    definesCondition(dc, aql, params, entity, ++count);
+                    definesCondition(dc, aql, params, entity, ++counter);
                 }
                 return;
             case NOT:
                 DocumentCondition documentCondition = document.get(DocumentCondition.class);
-                aql.append(" NOT ");
-                definesCondition(documentCondition, aql, params, entity, ++count);
+                aql.append(NOT);
+                definesCondition(documentCondition, aql, params, entity, ++counter);
                 return;
             default:
                 throw new IllegalArgumentException("The condition does not support in AQL: " + condition.getCondition());
         }
     }
 
-    private static void appendCondtion(StringBuilder aql, Map<String, Object> params, char entity, Document document,
-                                       String condition) {
-        String nameParam = getNameParam(document.getName());
-        aql.append(" ").append(entity).append('.').append(document.getName())
-                .append(condition).append('@').append(nameParam);
+    private static boolean isFirstCondition(StringBuilder aql, int count) {
+        return count > 0 && !FILTER.equals(aql.substring(aql.length() - 8));
+    }
+
+    private static void appendCondition(StringBuilder aql, Map<String, Object> params,
+                                        char entity, Document document, String condition) {
+        String nameParam = getNameParam(document.getName(), params);
+        aql.append(SEPARATOR).append(entity).append('.').append(document.getName())
+                .append(condition).append(PARAM_APPENDER).append(nameParam);
         params.put(nameParam, document.get());
+    }
+
+    private static String getNameParam(String name, Map<String, Object> params) {
+        String parameter = getNameParam(name);
+
+        String paramName = parameter;
+        int counter = 1;
+        while (params.containsKey(paramName)) {
+            paramName = parameter + '_' + counter;
+        }
+
+        return paramName;
     }
 
     private static String getNameParam(String name) {

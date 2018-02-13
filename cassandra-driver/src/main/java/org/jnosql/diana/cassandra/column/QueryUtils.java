@@ -124,7 +124,7 @@ final class QueryUtils {
     }
 
 
-    public static BuiltStatement add(ColumnQuery query, String keySpace) {
+    public static BuiltStatement select(ColumnQuery query, String keySpace) {
         String columnFamily = query.getColumnFamily();
 
         if (Objects.isNull(query.getCondition())) {
@@ -144,7 +144,6 @@ final class QueryUtils {
     }
 
     public static BuiltStatement delete(ColumnDeleteQuery query, String keySpace) {
-        String columnFamily = query.getColumnFamily();
 
         if (Objects.isNull(query.getCondition())) {
             return QueryBuilder.delete().all().from(keySpace, query.getColumnFamily());

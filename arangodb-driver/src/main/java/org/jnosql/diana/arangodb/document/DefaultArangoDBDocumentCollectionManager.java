@@ -18,6 +18,7 @@ import com.arangodb.ArangoCursor;
 import com.arangodb.ArangoDB;
 import com.arangodb.entity.BaseDocument;
 import com.arangodb.entity.DocumentCreateEntity;
+import com.arangodb.entity.DocumentUpdateEntity;
 import org.jnosql.diana.api.ValueWriter;
 import org.jnosql.diana.api.document.Document;
 import org.jnosql.diana.api.document.DocumentCondition;
@@ -29,16 +30,12 @@ import org.jnosql.diana.api.writer.ValueWriterDecorator;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static org.jnosql.diana.arangodb.document.ArangoDBUtil.getBaseDocument;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.deleteByKey;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.findByKeys;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.isJustKey;
 
 class DefaultArangoDBDocumentCollectionManager implements ArangoDBDocumentCollectionManager {
 
@@ -64,16 +61,7 @@ class DefaultArangoDBDocumentCollectionManager implements ArangoDBDocumentCollec
         checkCollection(collectionName);
         BaseDocument baseDocument = getBaseDocument(entity);
         DocumentCreateEntity<BaseDocument> arandoDocument = arangoDB.db(database).collection(collectionName).insertDocument(baseDocument);
-        if (!entity.find(KEY).isPresent()) {
-            entity.add(Document.of(KEY, arandoDocument.getKey()));
-        }
-        if (!entity.find(ID).isPresent()) {
-            entity.add(Document.of(ID, arandoDocument.getId()));
-        }
-        if (!entity.find(REV).isPresent()) {
-            entity.add(Document.of(REV, arandoDocument.getRev()));
-        }
-
+        updateEntity(entity, arandoDocument.getKey(), arandoDocument.getId(), arandoDocument.getRev());
         return entity;
     }
 
@@ -82,38 +70,31 @@ class DefaultArangoDBDocumentCollectionManager implements ArangoDBDocumentCollec
         String collectionName = entity.getName();
         checkCollection(collectionName);
         BaseDocument baseDocument = getBaseDocument(entity);
-        arangoDB.db(database).collection(collectionName).updateDocument(baseDocument.getKey(), baseDocument);
+        DocumentUpdateEntity<BaseDocument> arandoDocument = arangoDB.db(database)
+                .collection(collectionName).updateDocument(baseDocument.getKey(), baseDocument);
+        updateEntity(entity, arandoDocument.getKey(), arandoDocument.getId(), arandoDocument.getRev());
         return entity;
     }
 
     @Override
     public void delete(DocumentDeleteQuery query) {
         requireNonNull(query, "query is required");
-        String collection = query.getDocumentCollection();
         if (checkCondition(query.getCondition())) {
             return;
         }
-        if (isJustKey(query.getCondition(), KEY)) {
-            deleteByKey(query, collection, arangoDB, database);
-        }
 
-        AQLQueryResult delete = AQLUtils.delete(query);
+        AQLQueryResult delete = QueryAQLConverter.delete(query);
         arangoDB.db(database).query(delete.getQuery(), delete.getValues(),
                 null, BaseDocument.class);
 
 
     }
 
-
     @Override
     public List<DocumentEntity> select(DocumentQuery query) throws NullPointerException {
         requireNonNull(query, "query is required");
 
-
-        if (isJustKey(query.getCondition(), KEY)) {
-            return findByKeys(query, arangoDB, database);
-        }
-        AQLQueryResult result = AQLUtils.select(query);
+        AQLQueryResult result = QueryAQLConverter.select(query);
         ArangoCursor<BaseDocument> documents = arangoDB.db(database).query(result.getQuery(),
                 result.getValues(), null, BaseDocument.class);
 
@@ -122,14 +103,6 @@ class DefaultArangoDBDocumentCollectionManager implements ArangoDBDocumentCollec
                 .collect(toList());
     }
 
-
-    private DocumentEntity toEntity(String collection, String key) {
-        BaseDocument document = arangoDB.db(database).collection(collection).getDocument(key, BaseDocument.class);
-        if (Objects.isNull(document)) {
-            return null;
-        }
-        return ArangoDBUtil.toEntity(document);
-    }
 
     @Override
     public List<DocumentEntity> aql(String query, Map<String, Object> values) throws NullPointerException {
@@ -162,6 +135,12 @@ class DefaultArangoDBDocumentCollectionManager implements ArangoDBDocumentCollec
     @Override
     public DocumentEntity insert(DocumentEntity entity, Duration ttl) {
         throw new UnsupportedOperationException("TTL is not supported on ArangoDB implementation");
+    }
+
+    private void updateEntity(DocumentEntity entity, String key, String id, String rev) {
+        entity.add(Document.of(KEY, key));
+        entity.add(Document.of(ID, id));
+        entity.add(Document.of(REV, rev));
     }
 
 

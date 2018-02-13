@@ -15,14 +15,17 @@
 
 package org.jnosql.diana.redis.key;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class DefaultSortedSetTest {
 
@@ -37,9 +40,7 @@ public class DefaultSortedSetTest {
     public void init() {
         keyValueEntityManagerFactory = RedisTestUtils.get();
         sortedSet = keyValueEntityManagerFactory.getSortedSet("world-cup-2018");
-        sortedSet.remove(BRAZIL);
-        sortedSet.remove(USA);
-        sortedSet.remove(ENGLAND);
+        sortedSet.clear();
     }
 
     @Test
@@ -72,6 +73,16 @@ public class DefaultSortedSetTest {
         sortedSet.add(ENGLAND, 3);
         assertFalse(sortedSet.isEmpty());
         sortedSet.delete();
+        assertTrue(sortedSet.isEmpty());
+    }
+
+    @Test
+    public void souldClear() {
+        sortedSet.add(BRAZIL, 1);
+        sortedSet.add(USA, 2);
+        sortedSet.add(ENGLAND, 3);
+        assertFalse(sortedSet.isEmpty());
+        sortedSet.clear();
         assertTrue(sortedSet.isEmpty());
     }
 
@@ -153,6 +164,11 @@ public class DefaultSortedSetTest {
         sortedSet.add(england);
 
         assertThat(sortedSet.getRevRanking(), contains(england, usa, brazil));
+    }
+
+    @AfterEach
+    public void remove() {
+        sortedSet.clear();
     }
 
 }

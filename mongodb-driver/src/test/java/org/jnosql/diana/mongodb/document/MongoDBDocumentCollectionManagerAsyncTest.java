@@ -25,9 +25,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,7 +39,9 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.delete;
 import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.select;
 import static org.jnosql.diana.mongodb.document.DocumentConfigurationUtils.getAsync;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
@@ -54,12 +59,67 @@ public class MongoDBDocumentCollectionManagerAsyncTest {
 
 
     @Test
-    public void shouldSaveAsync() throws InterruptedException {
+    public void shouldInsertAsync() throws InterruptedException {
         AtomicBoolean condition = new AtomicBoolean(false);
         DocumentEntity entity = getEntity();
         entityManager.insert(entity, c -> condition.set(true));
+        await().untilTrue(condition);
+        assertTrue(condition.get());
+    }
+
+    @Test
+    public void shouldInsertIterableAsync() throws InterruptedException {
+        List<DocumentEntity> entities = Collections.singletonList(getEntity());
+        entityManager.insert(entities);
+    }
+
+    @Test
+    public void shouldThrowExceptionWhenInsertWithTTL() {
+        assertThrows(UnsupportedOperationException.class, () -> entityManager.insert(getEntity(), Duration.ofSeconds(10)));
+    }
+
+    @Test
+    public void shouldThrowExceptionWhenInsertWithTTLWithCallback() {
+        assertThrows(UnsupportedOperationException.class, () -> entityManager.insert(getEntity(), Duration.ofSeconds(10), r -> {}));
+    }
+
+    @Test
+    public void shouldUpdateAsync() throws InterruptedException {
+
+        Random random = new Random();
+        long id = random.nextLong();
+        
+        AtomicBoolean condition = new AtomicBoolean(false);
+        AtomicReference<DocumentEntity> reference = new AtomicReference<>();
+        DocumentEntity entity = getEntity();
+        entity.add("_id", id);
+        entityManager.insert(entity, c -> {
+            condition.set(true);
+            reference.set(c);
+        });
+        await().untilTrue(condition);
+        entityManager.update(reference.get(), c -> condition.set(true));
+        assertTrue(condition.get());
+    }
+
+    @Test
+    public void shouldUpdateIterableAsync() throws InterruptedException {
+        Random random = new Random();
+        long id = random.nextLong();
+
+        AtomicBoolean condition = new AtomicBoolean(false);
+        AtomicReference<DocumentEntity> reference = new AtomicReference<>();
+        DocumentEntity entity = getEntity();
+        entity.add("_id", id);
+        entityManager.insert(entity, c -> {
+            condition.set(true);
+            reference.set(c);
+        });
+        await().untilTrue(condition);
+        entityManager.update(Collections.singletonList(entity));
 
     }
+
 
     @Test
     public void shouldSelect() throws InterruptedException {
@@ -69,9 +129,18 @@ public class MongoDBDocumentCollectionManagerAsyncTest {
         }
         AtomicBoolean condition = new AtomicBoolean(false);
         DocumentQuery query = select().from(entity.getName()).build();
-        entityManager.select(query, c -> condition.set(true));
+        AtomicReference<List<DocumentEntity>> atomicReference = new AtomicReference<>();
+
+        entityManager.select(query, c -> {
+            condition.set(true);
+            atomicReference.set(c);
+        });
+
         await().untilTrue(condition);
+        List<DocumentEntity> entities = atomicReference.get();
         assertTrue(condition.get());
+        assertFalse(entities.isEmpty());
+
     }
 
 
@@ -82,16 +151,45 @@ public class MongoDBDocumentCollectionManagerAsyncTest {
         await().until(entityAtomic::get, notNullValue(DocumentEntity.class));
 
         DocumentEntity entity = entityAtomic.get();
+        Document document = entity.find("name").get();
         assertNotNull(entity);
+        assertNotNull(document);
+
         String collection = entity.getName();
         DocumentDeleteQuery deleteQuery = delete().from(collection)
-                .where("name").eq(entity.find("name").get().get())
+                .where("name").eq(document.get())
                 .build();
         AtomicBoolean condition = new AtomicBoolean(false);
         entityManager.delete(deleteQuery, c -> condition.set(true));
         await().untilTrue(condition);
-        assertTrue(condition.get());
 
+        AtomicBoolean selectCondition = new AtomicBoolean(false);
+        AtomicReference<List<DocumentEntity>> reference = new AtomicReference<>();
+        DocumentQuery selectQuery = select().from(collection)
+                .where("name").eq(document.get())
+                .build();
+        entityManager.select(selectQuery, c -> {
+            selectCondition.set(true);
+            reference.set(c);
+        });
+        await().untilTrue(selectCondition);
+
+        assertTrue(reference.get().isEmpty());
+    }
+
+    @Test
+    public void shouldRemoveEntity() {
+        AtomicReference<DocumentEntity> entityAtomic = new AtomicReference<>();
+        entityManager.insert(getEntity(), entityAtomic::set);
+        await().until(entityAtomic::get, notNullValue(DocumentEntity.class));
+
+        DocumentEntity entity = entityAtomic.get();
+        Document document = entity.find("name").get();
+
+        DocumentDeleteQuery deleteQuery = delete().from(entity.getName())
+                .where(document.getName()).eq(document.get())
+                .build();
+        entityManager.delete(deleteQuery);
     }
 
     private DocumentEntity getEntity() {

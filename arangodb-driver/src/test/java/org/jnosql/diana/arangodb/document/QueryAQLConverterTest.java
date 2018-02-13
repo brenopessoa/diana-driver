@@ -22,14 +22,14 @@ import java.util.Map;
 import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.select;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class AQLUtilsTest {
+public class QueryAQLConverterTest {
 
     @Test
     public void shouldRunEqualsQuery() {
         DocumentQuery query = select().from("collection")
                 .where("name").eq("value").build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -44,7 +44,7 @@ public class AQLUtilsTest {
                 .and("age").lte(10)
                 .build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -59,7 +59,7 @@ public class AQLUtilsTest {
                 .or("age").lte(10)
                 .build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -73,7 +73,7 @@ public class AQLUtilsTest {
                 .where("name").eq("value")
                 .orderBy("name").asc().build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -87,7 +87,7 @@ public class AQLUtilsTest {
                 .orderBy("name").asc()
                 .orderBy("age").desc().build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -101,7 +101,7 @@ public class AQLUtilsTest {
                 .where("name").eq("value")
                 .limit(5).build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -115,7 +115,7 @@ public class AQLUtilsTest {
                 .where("name").eq("value")
                 .start(1).limit(5).build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -127,7 +127,7 @@ public class AQLUtilsTest {
         DocumentQuery query = select().from("collection")
                 .where("name").not().eq("value").build();
 
-        AQLQueryResult convert = AQLUtils.select(query);
+        AQLQueryResult convert = QueryAQLConverter.select(query);
         String aql = convert.getQuery();
         Map<String, Object> values = convert.getValues();
         assertEquals("value", values.get("name"));
@@ -135,5 +135,23 @@ public class AQLUtilsTest {
 
     }
 
+
+    @Test
+    public void shouldNegate() {
+        DocumentQuery query = select().from("collection")
+                .where("city").not().eq("Assis")
+                .and("name").eq("Otavio")
+                .or("name").not().eq("Lucas").build();
+
+        AQLQueryResult convert = QueryAQLConverter.select(query);
+        String aql = convert.getQuery();
+        Map<String, Object> values = convert.getValues();
+        assertEquals(3, values.size());
+        assertEquals("Assis", values.get("city"));
+        assertEquals("Otavio", values.get("name"));
+        assertEquals("Lucas", values.get("name_1"));
+        assertEquals("FOR c IN collection FILTER  NOT  c.city == @city AND  c.name == @name OR  NOT  c.name == @name_1 RETURN c", aql);
+
+    }
 
 }

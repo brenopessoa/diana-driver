@@ -85,7 +85,10 @@ public interface SortedSet {
 
     /**
      * Delete this SortedSet
+     *
+     * @deprecated As of release 0.0.5, replaced by {@link #clear()}
      */
+    @Deprecated
     void delete();
 
     /**
@@ -140,4 +143,9 @@ public interface SortedSet {
      * @see SortedSet#revRange(long, long)
      */
     List<Ranking> getRevRanking();
+
+    /**
+     * Removes all of the elements from this sortedset
+     */
+    void clear();
 }

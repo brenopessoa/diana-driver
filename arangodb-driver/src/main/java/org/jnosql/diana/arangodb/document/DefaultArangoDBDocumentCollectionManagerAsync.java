@@ -21,6 +21,7 @@ import com.arangodb.entity.BaseDocument;
 import com.arangodb.entity.DocumentCreateEntity;
 import com.arangodb.entity.DocumentUpdateEntity;
 import org.jnosql.diana.api.ExecuteAsyncQueryException;
+import org.jnosql.diana.api.document.Document;
 import org.jnosql.diana.api.document.DocumentDeleteQuery;
 import org.jnosql.diana.api.document.DocumentEntity;
 import org.jnosql.diana.api.document.DocumentQuery;
@@ -34,13 +35,15 @@ import java.util.stream.StreamSupport;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
+import static org.jnosql.diana.arangodb.document.ArangoDBUtil.ID;
 import static org.jnosql.diana.arangodb.document.ArangoDBUtil.KEY;
+import static org.jnosql.diana.arangodb.document.ArangoDBUtil.REV;
 import static org.jnosql.diana.arangodb.document.ArangoDBUtil.getBaseDocument;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.deleteByKey;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.findByKeys;
-import static org.jnosql.diana.arangodb.document.OperationsByKeysUtils.isJustKey;
 
 public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDocumentCollectionManagerAsync {
+
+    private static final Consumer NOOP = v -> {
+    };
 
     private final ArangoDB arangoDB;
 
@@ -56,8 +59,7 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
 
     @Override
     public void insert(DocumentEntity entity) throws ExecuteAsyncQueryException, UnsupportedOperationException {
-        insert(entity, v -> {
-        });
+        insert(entity, NOOP);
     }
 
     @Override
@@ -70,12 +72,15 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
     public void insert(DocumentEntity entity, Consumer<DocumentEntity> callBack) throws ExecuteAsyncQueryException
             , UnsupportedOperationException {
 
+        requireNonNull(entity, "entity is required");
+        requireNonNull(callBack, "callBack is required");
+
         String collectionName = entity.getName();
         checkCollection(collectionName);
         BaseDocument baseDocument = getBaseDocument(entity);
         CompletableFuture<DocumentCreateEntity<BaseDocument>> future = arangoDBAsync.db(database)
                 .collection(collectionName).insertDocument(baseDocument);
-        future.thenAccept(d -> callBack.accept(entity));
+        future.thenAccept(d -> createConsumer(entity, callBack, d.getKey(), d.getId(), d.getRev()));
     }
 
     @Override
@@ -85,26 +90,28 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
 
     @Override
     public void update(DocumentEntity entity) throws ExecuteAsyncQueryException, UnsupportedOperationException {
-        update(entity, v -> {
-        });
+        update(entity, NOOP);
     }
 
     @Override
     public void update(DocumentEntity entity, Consumer<DocumentEntity> callBack)
             throws ExecuteAsyncQueryException, UnsupportedOperationException {
+
+        requireNonNull(entity, "entity is required");
+        requireNonNull(callBack, "callBack is required");
+
         String collectionName = entity.getName();
         checkCollection(collectionName);
         BaseDocument baseDocument = getBaseDocument(entity);
         CompletableFuture<DocumentUpdateEntity<BaseDocument>> future = arangoDBAsync.db(database).collection(collectionName)
                 .updateDocument(baseDocument.getKey(), baseDocument);
-        future.thenAccept(d -> callBack.accept(entity));
+        future.thenAccept(d -> createConsumer(entity, callBack, d.getKey(), d.getId(), d.getRev()));
     }
 
 
     @Override
     public void delete(DocumentDeleteQuery query) throws ExecuteAsyncQueryException, UnsupportedOperationException {
-        delete(query, v -> {
-        });
+        delete(query, NOOP);
     }
 
     @Override
@@ -114,11 +121,10 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
         requireNonNull(query, "query is required");
         requireNonNull(callBack, "callBack is required");
 
-        if (isJustKey(query.getCondition(), KEY)) {
-            deleteByKey(query, callBack, arangoDBAsync, database);
-        }
+        requireNonNull(query, "query is required");
+        requireNonNull(callBack, "callBack is required");
 
-        AQLQueryResult delete = AQLUtils.delete(query);
+        AQLQueryResult delete = QueryAQLConverter.delete(query);
         CompletableFuture<ArangoCursorAsync<BaseDocument>> future = arangoDBAsync.db(database).query(delete.getQuery(), delete.getValues(),
                 null, BaseDocument.class);
         future.thenAccept(c -> callBack.accept(null));
@@ -132,17 +138,8 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
         requireNonNull(query, "query is required");
         requireNonNull(callBack, "callBack is required");
 
-        if (isJustKey(query.getCondition(), KEY)) {
-            findByKeys(query, callBack, arangoDBAsync, database);
-        }
-        AQLQueryResult result = AQLUtils.select(query);
-        CompletableFuture<ArangoCursorAsync<BaseDocument>> future = arangoDBAsync.db(database).query(result.getQuery(),
-                result.getValues(), null, BaseDocument.class);
-
-        future.thenAccept(b -> {
-            List<DocumentEntity> entities = StreamSupport.stream(b.spliterator(), false).map(ArangoDBUtil::toEntity).collect(toList());
-            callBack.accept(entities);
-        });
+        AQLQueryResult result = QueryAQLConverter.select(query);
+        runAql(result.getQuery(), result.getValues(), callBack);
 
 
     }
@@ -153,6 +150,22 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
             throws ExecuteAsyncQueryException,
             UnsupportedOperationException, NullPointerException {
 
+        requireNonNull(query, "query is required");
+        requireNonNull(callBack, "callBack is required");
+        requireNonNull(values, "values is required");
+
+        runAql(query, values, callBack);
+
+    }
+
+    private void runAql(String query, Map<String, Object> values, Consumer<List<DocumentEntity>> callBack) {
+        CompletableFuture<ArangoCursorAsync<BaseDocument>> future = arangoDBAsync.db(database).query(query,
+                values, null, BaseDocument.class);
+
+        future.thenAccept(b -> {
+            List<DocumentEntity> entities = StreamSupport.stream(b.spliterator(), false).map(ArangoDBUtil::toEntity).collect(toList());
+            callBack.accept(entities);
+        });
     }
 
 
@@ -164,6 +177,14 @@ public class DefaultArangoDBDocumentCollectionManagerAsync implements ArangoDBDo
     private void checkCollection(String collectionName) {
         ArangoDBUtil.checkCollection(database, arangoDB, collectionName);
     }
+
+    private void createConsumer(DocumentEntity entity, Consumer<DocumentEntity> callBack, String key, String id, String rev) {
+        entity.add(Document.of(KEY, key));
+        entity.add(Document.of(ID, id));
+        entity.add(Document.of(REV, rev));
+        callBack.accept(entity);
+    }
+
 
 
 }

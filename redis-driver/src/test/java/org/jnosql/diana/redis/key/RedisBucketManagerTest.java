@@ -16,6 +16,15 @@
 package org.jnosql.diana.redis.key;
 
 
+import static java.util.Arrays.asList;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -25,13 +34,9 @@ import org.jnosql.diana.api.Value;
 import org.jnosql.diana.api.key.BucketManager;
 import org.jnosql.diana.api.key.BucketManagerFactory;
 import org.jnosql.diana.api.key.KeyValueEntity;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import static java.util.Arrays.asList;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.junit.jupiter.api.Assertions.*;
 
 public class RedisBucketManagerTest {
 
@@ -70,8 +75,6 @@ public class RedisBucketManagerTest {
 
     @Test
     public void shouldPutIterableKeyValue() {
-
-
         keyValueEntityManager.put(asList(keyValueSoro, keyValueOtavio));
         Optional<Value> otavio = keyValueEntityManager.get("otavio");
         assertTrue(otavio.isPresent());
@@ -88,13 +91,10 @@ public class RedisBucketManagerTest {
         KeyValueEntity keyValue = KeyValueEntity.of("otavio", Value.of(user));
         keyValueEntityManager.put(keyValue);
         assertNotNull(keyValueEntityManager.get("otavio"));
-
-
     }
 
     @Test
     public void shouldRemoveKey() {
-
         keyValueEntityManager.put(keyValueOtavio);
         assertTrue(keyValueEntityManager.get("otavio").isPresent());
         keyValueEntityManager.remove("otavio");
@@ -103,13 +103,16 @@ public class RedisBucketManagerTest {
 
     @Test
     public void shouldRemoveMultiKey() {
-
         keyValueEntityManager.put(asList(keyValueSoro, keyValueOtavio));
         List<String> keys = asList("otavio", "soro");
         Iterable<Value> values = keyValueEntityManager.get(keys);
         assertThat(StreamSupport.stream(values.spliterator(), false).map(value -> value.get(User.class)).collect(Collectors.toList()), containsInAnyOrder(userOtavio, userSoro));
         keyValueEntityManager.remove(keys);
-        Iterable<Value> users = values;
         assertEquals(0L, StreamSupport.stream(keyValueEntityManager.get(keys).spliterator(), false).count());
+    }
+
+    @AfterEach
+    public void remove() {
+        keyValueEntityManager.remove(Arrays.asList("otavio", "soro"));
     }
 }

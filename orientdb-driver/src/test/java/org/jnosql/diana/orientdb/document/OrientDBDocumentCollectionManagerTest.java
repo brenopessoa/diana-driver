@@ -20,9 +20,11 @@ import org.jnosql.diana.api.document.DocumentDeleteQuery;
 import org.jnosql.diana.api.document.DocumentEntity;
 import org.jnosql.diana.api.document.DocumentQuery;
 import org.jnosql.diana.api.document.Documents;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -31,11 +33,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonMap;
-import static java.util.logging.Level.FINEST;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -43,31 +45,20 @@ import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.delete;
 import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.select;
 import static org.jnosql.diana.orientdb.document.DocumentConfigurationUtils.get;
 import static org.jnosql.diana.orientdb.document.OrientDBConverter.RID_FIELD;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class OrientDBDocumentCollectionManagerTest {
-
-
     public static final String COLLECTION_NAME = "person";
-
-    private static final Logger LOGGER = Logger.getLogger(OrientDBDocumentCollectionManagerTest.class.getName());
 
     private OrientDBDocumentCollectionManager entityManager;
 
     @BeforeEach
     public void setUp() {
         entityManager = get().get("database");
-        DocumentEntity documentEntity = getEntity();
-        Document id = documentEntity.find("name").get();
-        DocumentQuery query =  select().from(COLLECTION_NAME).where(id.getName()).eq(id.get()).build();
-
-        DocumentDeleteQuery deleteQuery = delete().from(COLLECTION_NAME).where(id.getName()).eq(id.get()).build();
-        try {
-            entityManager.delete(deleteQuery);
-        } catch (Exception e) {
-            LOGGER.log(FINEST, "error on OrientDB setup", e);
-        }
-
     }
 
     @Test
@@ -81,13 +72,43 @@ public class OrientDBDocumentCollectionManagerTest {
     }
 
     @Test
+    public void shouldThrowExceptionWhenSaveWithTTL() {
+        assertThrows(UnsupportedOperationException.class, () -> entityManager.insert(getEntity(), Duration.ZERO));
+    }
+
+    @Test
     public void shouldUpdateSave() {
-        DocumentEntity entity = getEntity();
-        DocumentEntity documentEntity = entityManager.insert(entity);
+        DocumentEntity entity = entityManager.insert(getEntity());
         Document newField = Documents.of("newField", "10");
         entity.add(newField);
-        DocumentEntity updated = entityManager.update(entity);
-        assertEquals(newField, updated.find("newField").get());
+        entityManager.update(entity);
+
+        Document id = entity.find(OrientDBConverter.RID_FIELD).get();
+        DocumentQuery query = select().from(entity.getName())
+                .where(id.getName()).eq(id.get())
+                .build();
+        Optional<DocumentEntity> updated = entityManager.singleResult(query);
+
+        assertTrue(updated.isPresent());
+        assertEquals(newField, updated.get().find(newField.getName()).get());
+    }
+
+    @Test
+    public void shouldUpdateWithRetry() {
+        DocumentEntity entity = entityManager.insert(getEntity());
+        entity.add(Document.of(OrientDBConverter.VERSION_FIELD, 0));
+        Document newField = Documents.of("newField", "99");
+        entity.add(newField);
+        entityManager.update(entity);
+
+        Document id = entity.find(OrientDBConverter.RID_FIELD).get();
+        DocumentQuery query = select().from(entity.getName())
+                .where(id.getName()).eq(id.get())
+                .build();
+        Optional<DocumentEntity> updated = entityManager.singleResult(query);
+
+        assertTrue(updated.isPresent());
+        assertEquals(newField, updated.get().find(newField.getName()).get());
     }
 
     @Test
@@ -202,6 +223,105 @@ public class OrientDBDocumentCollectionManagerTest {
     }
 
     @Test
+    public void shouldQueryGreaterThan() {
+        DocumentEntity entity = getEntity();
+        entity.add("age", 25);
+        entityManager.insert(entity);
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("age").gt(25)
+                .build();
+        assertTrue(entityManager.select(query).isEmpty());
+
+        DocumentQuery query2 = select().from(COLLECTION_NAME)
+                .where("age").gt(24)
+                .build();
+        assertTrue(entityManager.select(query2).size() == 1);
+    }
+
+    @Test
+    public void shouldQueryLesserThan() {
+        DocumentEntity entity = getEntity();
+        entity.add("age", 25);
+        entityManager.insert(entity);
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("age").lt(25)
+                .build();
+        assertTrue(entityManager.select(query).isEmpty());
+
+        DocumentQuery query2 = select().from(COLLECTION_NAME)
+                .where("age").lt(26)
+                .build();
+        assertTrue(entityManager.select(query2).size() == 1);
+    }
+
+    @Test
+    public void shouldQueryLesserEqualsThan() {
+        DocumentEntity entity = getEntity();
+        entity.add("age", 25);
+        entityManager.insert(entity);
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("age").lte(24)
+                .build();
+        assertTrue(entityManager.select(query).isEmpty());
+
+        DocumentQuery query2 = select().from(COLLECTION_NAME)
+                .where("age").lte(25)
+                .build();
+        assertTrue(entityManager.select(query2).size() == 1);
+
+        DocumentQuery query3 = select().from(COLLECTION_NAME)
+                .where("age").lte(26)
+                .build();
+        assertTrue(entityManager.select(query3).size() == 1);
+    }
+
+    @Test
+    public void shouldQueryIn() {
+        entityManager.insert(getEntities());
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("city").in(asList("Salvador", "Assis"))
+                .build();
+        assertTrue(entityManager.select(query).size() == 2);
+
+        DocumentDeleteQuery deleteQuery = delete().from(COLLECTION_NAME)
+                .where("city").in(asList("Salvador", "Assis", "Sao Paulo"))
+                .build();
+        entityManager.delete(deleteQuery);
+
+        assertTrue(entityManager.select(query).isEmpty());
+    }
+
+    @Test
+    public void shouldQueryLike() {
+        List<DocumentEntity> entitiesSaved = StreamSupport.stream(entityManager.insert(getEntities()).spliterator(), false).collect(Collectors.toList());
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("city").like("Sa%")
+                .build();
+
+        List<DocumentEntity> entities = entityManager.select(query);
+        assertTrue(entities.size() == 2);
+        assertThat(entities, containsInAnyOrder(entitiesSaved.get(0), entitiesSaved.get(1)));
+    }
+
+    @Test
+    public void shouldQueryNot() {
+        List<DocumentEntity> entitiesSaved = StreamSupport.stream(entityManager.insert(getEntities()).spliterator(), false).collect(Collectors.toList());
+
+        DocumentQuery query = select().from(COLLECTION_NAME)
+                .where("city").not().eq("Assis")
+                .build();
+
+        List<DocumentEntity> entities = entityManager.select(query);
+        assertTrue(entities.size() == 2);
+        assertThat(entities, containsInAnyOrder(entitiesSaved.get(0), entitiesSaved.get(1)));
+    }
+
+    @Test
     public void shouldLive() throws InterruptedException {
         List<DocumentEntity> entities = new ArrayList<>();
         Consumer<DocumentEntity> callback = entities::add;
@@ -265,5 +385,23 @@ public class OrientDBDocumentCollectionManagerTest {
         List<Document> documents = Documents.of(map);
         documents.forEach(entity::add);
         return entity;
+    }
+
+    private List<DocumentEntity> getEntities() {
+        DocumentEntity otavio = DocumentEntity.of(COLLECTION_NAME);
+        otavio.add(Document.of("name", "Otavio"));
+        otavio.add(Document.of("city", "Sao Paulo"));
+
+        DocumentEntity lucas = DocumentEntity.of(COLLECTION_NAME);
+        lucas.add(Document.of("name", "Lucas"));
+        lucas.add(Document.of("city", "Assis"));
+
+        return asList(getEntity(), otavio, lucas);
+    }
+
+    @AfterEach
+    void removePersons() {
+        DocumentDeleteQuery query = delete().from(COLLECTION_NAME).build();
+        entityManager.delete(query);
     }
 }

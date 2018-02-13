@@ -16,26 +16,31 @@ package org.jnosql.diana.arangodb.document;
 
 import org.jnosql.diana.api.document.Document;
 import org.jnosql.diana.api.document.DocumentCollectionManager;
-import org.jnosql.diana.api.document.DocumentCollectionManagerAsync;
 import org.jnosql.diana.api.document.DocumentDeleteQuery;
 import org.jnosql.diana.api.document.DocumentEntity;
 import org.jnosql.diana.api.document.Documents;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.awaitility.Awaitility.await;
 import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.delete;
+import static org.jnosql.diana.api.document.query.DocumentQueryBuilder.select;
 import static org.jnosql.diana.arangodb.document.DocumentConfigurationUtils.getConfiguration;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 
 public class ArangoDBDocumentCollectionManagerAsyncTest {
 
     public static final String COLLECTION_NAME = "person";
-    private DocumentCollectionManagerAsync entityManagerAsync;
+    private ArangoDBDocumentCollectionManagerAsync entityManagerAsync;
     private DocumentCollectionManager entityManager;
     private Random random;
     private String KEY_NAME = "_key";
@@ -49,10 +54,20 @@ public class ArangoDBDocumentCollectionManagerAsyncTest {
 
 
     @Test
-    public void shouldSaveAsync() {
+    public void shouldInserAsync() {
         DocumentEntity entity = getEntity();
         entityManagerAsync.insert(entity);
 
+    }
+
+    @Test
+    public void shouldInsertCallBack() {
+        DocumentEntity entity = getEntity();
+        AtomicBoolean condition = new AtomicBoolean();
+
+        entityManagerAsync.insert(entity, d -> condition.set(true));
+
+        await().untilTrue(condition);
     }
 
     @Test
@@ -72,6 +87,64 @@ public class ArangoDBDocumentCollectionManagerAsyncTest {
         DocumentDeleteQuery query = delete().from(COLLECTION_NAME).where(id.getName())
                 .eq(id.get()).build();
         entityManagerAsync.delete(query);
+    }
+
+    @Test
+    public void shouldSelect() {
+        DocumentEntity entity = getEntity();
+        AtomicReference<DocumentEntity> reference = new AtomicReference<>();
+        AtomicBoolean condition = new AtomicBoolean(false);
+
+
+        entityManagerAsync.insert(entity, d -> {
+            condition.set(true);
+            reference.set(d);
+        });
+
+        await().untilTrue(condition);
+
+        DocumentEntity entity1 = reference.get();
+        Document key = entity1.find("_key").get();
+
+        condition.set(false);
+        AtomicReference<List<DocumentEntity>> references = new AtomicReference<>();
+        entityManagerAsync.select(select().from(entity1.getName()).where("_key").eq(key.get()).build(), l -> {
+            condition.set(true);
+            references.set(l);
+        });
+        await().untilTrue(condition);
+
+        List<DocumentEntity> entities = references.get();
+        assertFalse(entities.isEmpty());
+    }
+
+    @Test
+    public void shouldRunAQL() {
+        DocumentEntity entity = getEntity();
+        AtomicReference<DocumentEntity> reference = new AtomicReference<>();
+        AtomicBoolean condition = new AtomicBoolean(false);
+
+
+        entityManagerAsync.insert(entity, d -> {
+            condition.set(true);
+            reference.set(d);
+        });
+
+        await().untilTrue(condition);
+
+        DocumentEntity entity1 = reference.get();
+        Document key = entity1.find("_key").get();
+
+        condition.set(false);
+        AtomicReference<List<DocumentEntity>> references = new AtomicReference<>();
+        entityManagerAsync.aql("FOR p IN person FILTER  p._key == @key RETURN p", Collections.singletonMap("key", key.get()), l -> {
+            condition.set(true);
+            references.set(l);
+        });
+
+        await().untilTrue(condition);
+        List<DocumentEntity> entities = references.get();
+        assertFalse(entities.isEmpty());
     }
 
 
