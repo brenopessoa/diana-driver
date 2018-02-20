@@ -14,7 +14,7 @@
  */
 
 /**
- * Redis is a software project that implements data structure servers. It is open-source, networked, in-memory,
- * and stores keys with optional durability.
+ * Amazon DynamoDB is a fast and flexible NoSQL database service for all applications 
+ * that need consistent, single-digit millisecond latency at any scale
  */
 package org.dynamodb.driver;
