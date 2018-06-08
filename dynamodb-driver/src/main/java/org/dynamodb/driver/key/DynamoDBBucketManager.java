@@ -35,7 +35,6 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.document.BatchGetItemOutcome;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Item;
-import com.amazonaws.services.dynamodbv2.document.PrimaryKey;
 import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.document.TableKeysAndAttributes;
 import com.amazonaws.services.dynamodbv2.document.TableWriteItems;
@@ -45,6 +44,9 @@ import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveSpecification;
 import com.amazonaws.services.dynamodbv2.model.UpdateTimeToLiveRequest;
+
+import static org.dynamodb.driver.key.DynamoDBKeyValueUtils.KEY;
+import static org.dynamodb.driver.key.DynamoDBKeyValueUtils.VALUE;
 
 public class DynamoDBBucketManager implements BucketManager{
 
@@ -66,8 +68,8 @@ public class DynamoDBBucketManager implements BucketManager{
 	    Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
 	    AttributeValue attributeKey = new AttributeValue(key.toString());
 	    AttributeValue atrributeValue = new AttributeValue(jsonB.toJson(value.toString()));
-	    item.put("key",attributeKey);
-	    item.put("value", atrributeValue);
+	    item.put(KEY,attributeKey);
+	    item.put(VALUE, atrributeValue);
 	       
 	    PutItemRequest putItemRequest = new PutItemRequest(table.getTableName(),item);
 	    client.putItem(putItemRequest);
@@ -98,10 +100,11 @@ public class DynamoDBBucketManager implements BucketManager{
 	public <K> void put(Iterable<KeyValueEntity<K>> entities) throws NullPointerException {
 		
 		List<Item> items = StreamSupport.stream(entities.spliterator(),false)
-			.map(e -> new Item().withPrimaryKey("key",e.getKey().toString()))
+			.map(e -> e.toString())
+			.map(DynamoDBKeyValueUtils::createDynamoItem)
 			.collect(Collectors.toList());
 		
-		TableWriteItems tableWriteItems = new TableWriteItems(table.getTableName()).withItemsToPut(items);
+		TableWriteItems tableWriteItems = DynamoDBKeyValueUtils.createTableWriteItems(table.getTableName(),items);
 		
 		dynamoDB.batchWriteItem(tableWriteItems);
 	}
@@ -126,37 +129,32 @@ public class DynamoDBBucketManager implements BucketManager{
 	public <K> Optional<Value> get(K key) throws NullPointerException {
 		
 		Objects.requireNonNull(key);
-		GetItemSpec spec = new GetItemSpec().withPrimaryKey("key",key.toString());
+		GetItemSpec spec = new GetItemSpec().withPrimaryKey(DynamoDBKeyValueUtils.KEY,key.toString());
 		Item item = table.getItem(spec);
-		Value of = ValueJSON.of(item.get("value"));
+		Value of = ValueJSON.of(item.get(DynamoDBKeyValueUtils.VALUE));
 		return Optional.ofNullable(of);
 		
 	}
 
 	@Override
 	public <K> Iterable<Value> get(Iterable<K> keys) throws NullPointerException {
-		
-		TableKeysAndAttributes tableKeysAndAttributes = new TableKeysAndAttributes(table.getTableName());
-		StreamSupport.stream(keys.spliterator(),false)
-			.forEach(key -> tableKeysAndAttributes.addHashOnlyPrimaryKey("key",key.toString()));
 	
+		TableKeysAndAttributes tableKeysAndAttributes = DynamoDBKeyValueUtils.createTableKeysAndAttributes(table.getTableName(),keys);
 		BatchGetItemOutcome batchGetItem = dynamoDB.batchGetItem(tableKeysAndAttributes);
-		
 		Map<String, List<Item>> itemsTable = batchGetItem.getTableItems();
 		
 		return StreamSupport.stream(itemsTable.keySet().spliterator(),false)
 			.flatMap(table -> itemsTable.get(table).stream())
-			.map(item -> ValueJSON.of(item.get("value")))
+			.map(item -> ValueJSON.of(item.get(DynamoDBKeyValueUtils.VALUE)))
 			.collect(Collectors.toList());
 	}
 
 	@Override
 	public <K> void remove(K key) throws NullPointerException {
 		
-        DeleteItemSpec deleteItemSpec = new DeleteItemSpec()
-        		.withPrimaryKey(new PrimaryKey("key",key.toString()));
-        
+		DeleteItemSpec deleteItemSpec = DynamoDBKeyValueUtils.createDeleteItemSpec(key.toString());
         table.deleteItem(deleteItemSpec);
+    
 	}
 
 	@Override

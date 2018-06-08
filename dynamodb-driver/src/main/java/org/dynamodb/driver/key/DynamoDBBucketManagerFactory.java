@@ -15,13 +15,13 @@
 
 package org.dynamodb.driver.key;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.stream.StreamSupport;
 
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
@@ -30,14 +30,11 @@ import org.jnosql.diana.api.key.BucketManagerFactory;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
+import com.amazonaws.services.dynamodbv2.document.Item;
 import com.amazonaws.services.dynamodbv2.document.Table;
+import com.amazonaws.services.dynamodbv2.document.spec.QuerySpec;
 import com.amazonaws.services.dynamodbv2.local.embedded.DynamoDBEmbedded;
-import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
-import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
-import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
-import com.amazonaws.services.dynamodbv2.model.KeyType;
-import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
-import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
+import static org.dynamodb.driver.key.DynamoDBKeyValueUtils.VALUE;
 
 public class DynamoDBBucketManagerFactory implements BucketManagerFactory<DynamoDBBucketManager>{
 	
@@ -54,24 +51,7 @@ public class DynamoDBBucketManagerFactory implements BucketManagerFactory<Dynamo
 		Table table = dynamoDB.getTable(bucketName);
 
 		if(table == null){
-		
-			String key = "key";
-	
-			List<KeySchemaElement> keySchema = Arrays.asList(new KeySchemaElement(key,KeyType.HASH));
-			List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
-		    attributeDefinitions.add(new AttributeDefinition(key,ScalarAttributeType.S));
-		    
-		    ProvisionedThroughput provisionedthroughput = new ProvisionedThroughput(1000L, 1000L);
-		    
-		    CreateTableRequest createTableRequest = new CreateTableRequest()
-					.withTableName(bucketName)
-					.withAttributeDefinitions(attributeDefinitions)
-					.withProvisionedThroughput(provisionedthroughput)
-					.withKeySchema(keySchema);
-		    
-		    
-		   
-		    table = dynamoDB.createTable(createTableRequest);
+		    table = dynamoDB.createTable(DynamoDBKeyValueUtils.createTableRequest(bucketName));
 		    try {
 				table.waitForActive();
 			} catch (InterruptedException e) {
@@ -85,29 +65,42 @@ public class DynamoDBBucketManagerFactory implements BucketManagerFactory<Dynamo
 	@Override
 	public <T> List<T> getList(String bucketName, Class<T> clazz)
 			throws UnsupportedOperationException, NullPointerException {
-		// TODO Auto-generated method stub
-		return null;
+		
+		
+		
+		Objects.requireNonNull(bucketName,"teste");
+		
+		Table table = dynamoDB.getTable(bucketName);
+		
+		Spliterator<Item> spliterator = table.query(new QuerySpec()).spliterator();
+		
+		StreamSupport.stream(spliterator, false)
+			.map(i -> i.get(VALUE))
+			.map(o -> JSON.fromJson(o.toString(),clazz));
+		
+		
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public <T> Set<T> getSet(String bucketName, Class<T> clazz)
 			throws UnsupportedOperationException, NullPointerException {
-		// TODO Auto-generated method stub
-		return null;
+		
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public <T> Queue<T> getQueue(String bucketName, Class<T> clazz)
 			throws UnsupportedOperationException, NullPointerException {
-		// TODO Auto-generated method stub
-		return null;
+		
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public <K, V> Map<K, V> getMap(String bucketName, Class<K> keyValue, Class<V> valueValue)
 			throws UnsupportedOperationException, NullPointerException {
-		// TODO Auto-generated method stub
-		return null;
+		
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
